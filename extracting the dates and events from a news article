@@ -1,0 +1,104 @@
+# data_processing.py
+
+import pandas as pd
+import spacy
+from spacy.matcher import Matcher
+from datetime import datetime
+import json
+
+# Load the spaCy model
+nlp = spacy.load("en_core_web_sm")
+
+# Initialize the Matcher for custom event patterns
+matcher = Matcher(nlp.vocab)
+
+# Define event patterns
+event_patterns = [
+    [{"LOWER": "opened"}, {"LOWER": "a"}, {"LOWER": "new"}, {"LOWER": "store"}],
+    [{"LOWER": "held"}, {"LOWER": "a"}, {"LOWER": "press"}, {"LOWER": "conference"}],
+    [{"LOWER": "launched"}, {"LOWER": "a"}, {"LOWER": "new"}, {"LOWER": "product"}],
+    [{"LOWER": "announced"}, {"LOWER": "a"}, {"LOWER": "merger"}],
+    [{"LOWER": "won"}, {"LOWER": "an"}, {"LOWER": "award"}],
+    [{"LOWER": "celebrated"}, {"LOWER": "an"}, {"LOWER": "anniversary"}],
+    [{"LOWER": "completed"}, {"LOWER": "a"}, {"LOWER": "significant"}, {"LOWER": "project"}],
+    [{"LOWER": "signed"}, {"LOWER": "a"}, {"LOWER": "major"}, {"LOWER": "deal"}],
+    [{"LOWER": "held"}, {"LOWER": "a"}, {"LOWER": "charity"}, {"LOWER": "event"}]
+]
+matcher.add("EVENT_PATTERN", event_patterns)
+
+# Function to preprocess the text
+def preprocess_text(text):
+    return text.strip()
+
+# Function to extract dates, days, and events from the text
+def extract_dates_days_events(doc):
+    dates = []
+    days = []
+    events = []
+
+    for ent in doc.ents:
+        if ent.label_ == "DATE":
+            dates.append(ent.text)
+            try:
+                # Extract date and find day of the week if possible
+                date_str = ent.text
+                date_obj = datetime.strptime(date_str, '%B %d, %Y')  # Adjust format if necessary
+                days.append(date_obj.strftime("%A"))
+            except ValueError:
+                # Handle date parsing errors
+                pass
+
+    # Extract events using the Matcher
+    matches = matcher(doc)
+    for match_id, start, end in matches:
+        span = doc[start:end]
+        events.append(span.text)
+
+    return dates, days, events
+
+def process_and_save_results(file_path):
+    """Load, process data, and save results."""
+    # Load the dataset
+    df = pd.read_csv(file_path, encoding='latin-1')
+
+    # Process each article using batch processing for efficiency
+    texts = df['Article'].tolist()
+    docs = list(nlp.pipe(texts))
+
+    results = []
+    for index, doc in enumerate(docs):
+        text = preprocess_text(doc.text)
+        dates, days, events = extract_dates_days_events(doc)
+        results.append({
+            "article_index": index,
+            "dates": dates,
+            "days": days,
+            "events": events
+        })
+
+    # Save results to a JSON file
+    with open('extracted_data.json', 'w') as f:
+        json.dump(results, f, indent=4)
+
+    print("Data processing complete. Results saved to 'extracted_data.json'.")
+
+if __name__ == "__main__":
+    process_and_save_results("/content/Generated_News_Articles.csv")
+# display_results.py
+
+import json
+
+def display_results(file_path):
+    """Load and display results from a JSON file."""
+    with open(file_path, 'r') as f:
+        results = json.load(f)
+
+    for result in results:
+        print(f"Article {result['article_index']}:")
+        print(f"Dates: {result['dates']}")
+        print(f"Days: {result['days']}")
+        print(f"Events: {result['events']}")
+        print("-" * 40)
+
+if __name__ == "__main__":
+    display_results("extracted_data.json")
